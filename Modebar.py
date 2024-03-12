@@ -14,9 +14,7 @@ import bpy
 import gpu
 from gpu_extras.batch import batch_for_shader
 from typing import Dict
-
-# Global variable to store the draw handler reference
-draw_handler = {}
+print('---------------------------------------------------------------------------------------------------')
 
 # Actual table of all the colors used:
 mode_color_map: Dict[str, tuple[float, float, float, float]] = {
@@ -41,17 +39,58 @@ mode_color_map: Dict[str, tuple[float, float, float, float]] = {
     'PAINT_GPENCIL': (0.35, 0.35, 0.35, 0.5), # Grey
 }
 
-# Function to draw the actual rectangle:
-def draw_callback_px():
-    width = bpy.context.area.width
-    height = 54
-    coords = [(0, bpy.context.area.height-54), (width, bpy.context.area.height-54), 
-              (width, bpy.context.area.height - height-54), (0, bpy.context.area.height - height-54)]
-    indices = [(0, 1, 2), (2, 3, 0)]
+# Global variable to store the draw handler reference
+global draw_handler
+draw_handler = {}
 
+global bottom_bar_bool
+bottom_bar_bool = False
+
+global panel_offset_px
+panel_offset_px = 60
+
+global panel_height_px
+panel_height_px = 56
+
+def update_panel_offset(self, context):
+    global panel_offset_px
+    panel_offset_px = self.panel_offset
+
+def update_panel_height(self, context):
+    global panel_height_px
+    panel_height_px = self.panel_height
+
+def update_bottom_bar(self, context):
+    global bottom_bar_bool
+    bottom_bar_bool = self.bottom_bar
+
+def update_draw_callback():
+    global draw_handler
+    # if draw_handler:
+    bpy.types.SpaceView3D.draw_handler_remove(draw_handler, 'WINDOW')
+  
+    draw_handler = bpy.types.SpaceView3D.draw_handler_add(
+        draw_callback, (), 'WINDOW', 'POST_PIXEL')
+
+def draw_callback():
+    global panel_offset_px
+    global panel_height_px
+    global bottom_bar_bool
+    width = bpy.context.area.width
+    if bottom_bar_bool: # If bottom bar is enabled, draw the panel at the bottom
+        y_start = panel_offset_px + panel_height_px
+        y_end = panel_offset_px
+    else: # If bottom bar is disabled, draw the panel at the top
+        y_start = bpy.context.area.height - panel_offset_px
+        y_end = bpy.context.area.height - panel_offset_px - panel_height_px
+
+    coords = [(0, y_start), (width, y_start), 
+              (width, y_end), (0, y_end)]
+    indices = [(0, 1, 2), (2, 3, 0)]
+  
     shader = gpu.shader.from_builtin('UNIFORM_COLOR')
     batch = batch_for_shader(shader, 'TRIS', {"pos": coords}, indices=indices)
-
+  
     if bpy.context.mode == 'EDIT_MESH':
         if bpy.context.tool_settings.mesh_select_mode[0]:
             color = mode_color_map.get('VERT')
@@ -69,6 +108,27 @@ def draw_callback_px():
 # Ui to configure the colors in the Add-On panel:
 class ModeColorPreferences(bpy.types.AddonPreferences):
     bl_idname = __name__
+    panel_height: bpy.props.IntProperty(
+        name="Panel Height",
+        default=56,
+        min=1,
+        max=240,
+        update=update_panel_height
+    )
+
+    panel_offset: bpy.props.IntProperty(
+        name="Panel Offset",
+        default=60,
+        min=0,
+        max=240,
+        update=update_panel_offset
+    )
+
+    bottom_bar: bpy.props.BoolProperty(
+        name="Bottom Bar",
+        default= False,
+        update=update_bottom_bar
+    )
 
     color_object: bpy.props.FloatVectorProperty(
         name="Object Mode Color",
@@ -160,7 +220,7 @@ class ModeColorPreferences(bpy.types.AddonPreferences):
     )
 
     color_texture_paint: bpy.props.FloatVectorProperty(
-name="Texture Paint Mode Color",
+        name="Texture Paint Mode Color",
         subtype='COLOR_GAMMA',
         size=4,
         min=0.0, max=1.0,
@@ -258,9 +318,16 @@ name="Texture Paint Mode Color",
         update=lambda s, c: update_mode_color(s, c, 'PAINT_GPENCIL'),
         description="Color for Grease Pencil Paint Mode"
     )
+
     def draw(self, context):
         layout = self.layout
-        layout.label(text="Custom Mode Colors:")
+
+        row = layout.row()
+        row.prop(self, "panel_height")
+        row = layout.row()
+        row.prop(self, "panel_offset")
+        row = layout.row()
+        row.prop(self, "bottom_bar")
 
         row = layout.row()
         row.prop(self, "color_object")
@@ -308,13 +375,14 @@ def update_mode_color(self, context, mode):
 def register():
     global draw_handler
     draw_handler['handle'] = bpy.types.SpaceView3D.draw_handler_add(
-                                 draw_callback_px, (), 'WINDOW', 'POST_PIXEL')
+                                 draw_callback, (), 'WINDOW', 'POST_PIXEL')
     bpy.utils.register_class(ModeColorPreferences)
 
 def unregister():
     global draw_handler
     if draw_handler.get('handle'):
         bpy.types.SpaceView3D.draw_handler_remove(draw_handler['handle'], 'WINDOW')
+        # bpy.types.SpaceView3D.draw_handler_remove(draw_handler['handle'], 'WINDOW')
         draw_handler['handle'] = None
     bpy.utils.unregister_class(ModeColorPreferences)
 
